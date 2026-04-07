@@ -6,11 +6,17 @@ This file gives AI assistants (Claude, Codex, etc.) full context on what we're b
 
 ## What is this project
 
-**Metered** is a pay-per-use API marketplace for AI agents, built on Stellar using MPP (Machine Payments Protocol) and x402. Agents pay micropayments in USDC per API call instead of requiring developers to manage monthly subscriptions.
+**Metered** is the economic layer for machine-to-machine services.
+
+One-liner: *"Where AI agents go to spend money."*
+
+AI agents can reason and execute — but they cannot transact. Every service they need (search, data, compute) is locked behind human-centric billing. Metered solves this: agents discover, evaluate, and pay for services autonomously using Stellar MPP and x402, with no subscriptions, no API keys, no human in the loop.
+
+Key differentiator: **multiple providers per service**. Agents don't just pay — they compare price and quality across providers and make autonomous economic decisions.
 
 We're building this for the **Stellar Hacks: Agents hackathon** (deadline: April 13, 2026, prize: $10,000).
 
-The core insight: the payment rails exist (Stellar MPP, x402) but the actual services agents want to pay for don't. We're building those services.
+The core insight: the payment rails exist (Stellar MPP, x402) but the economic layer on top — discovery, evaluation, autonomous selection — does not. We're building that layer, starting with real services agents need today.
 
 ---
 

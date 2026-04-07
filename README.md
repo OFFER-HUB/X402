@@ -1,46 +1,84 @@
 # Metered
 
-> Pay-per-use APIs for AI agents — no subscriptions, no API keys, just pay what you use.
-
-Built for the **Stellar Hacks: Agents hackathon** (deadline: April 13, 2026).
+**Where AI agents go to spend money.**
 
 ---
 
-## The problem
+## Problem
 
-AI agents can't operate autonomously because every service they need (web search, financial data, compute) sits behind monthly subscriptions designed for humans — not machines.
+AI agents can reason and execute tasks — but they cannot transact.
 
-A developer building an agent that searches the web 50 times a month shouldn't pay $20/month to Brave. They should pay $0.50 — exactly for what they use. No credit card, no account, no human in the loop.
+Every service they need is locked behind subscriptions, API keys, and billing systems designed for humans. The moment an agent needs to pay for something, it stops. A human has to step in.
 
-The payment infrastructure exists (Stellar MPP, x402) but the actual services agents want to pay for don't. **We built the services.**
+**This breaks autonomy.**
 
 ---
 
-## What it does
+## Insight
 
-Metered exposes real, useful APIs gated behind **Stellar MPP** and **x402** payments. An AI agent with a funded Stellar wallet can call any of these services and pay micropayments automatically — no subscriptions, no setup.
+The payment infrastructure already exists.
 
-### Services
+With x402 and Stellar micropayments, agents can pay per request — instantly, at near-zero cost, without accounts or API keys.
 
-| Endpoint | Protocol | Price | What it does |
-|---|---|---|---|
-| `GET /search?q=<query>` | Stellar MPP | 0.01 USDC | Web search (Brave or Jina AI fallback) |
-| `GET /finance/quote?symbol=<ticker>` | Stellar MPP | 0.001 USDC | Real-time stock data |
-| `GET /x402/search?q=<query>` | x402 | 0.01 USDC | Same search, x402 protocol |
+What's missing is the economic layer on top: a system where agents can **discover, evaluate, and transact with services autonomously**.
 
-### How payment works
+---
+
+## Solution
+
+Metered is an execution layer for AI agents to discover, evaluate, and pay for services in real time.
+
+- **Pay-per-use** — no subscriptions, no commitments
+- **No API keys** — the payment receipt is the credential
+- **Multiple providers per service** — agents compare price and quality, then decide
+- **Native machine-to-machine** — built on Stellar MPP and x402
+
+---
+
+## Services (MVP)
+
+| Service | Providers | Price |
+|---|---|---|
+| Web Search | Brave, Jina AI | 0.01 USDC / query |
+| Financial Data | Yahoo Finance | 0.001 USDC / quote |
+| AI Inference | *(coming)* | per token |
+
+Each service exposes multiple providers. The agent selects based on price, quality, and task requirements — autonomously.
+
+---
+
+## Demo
+
+An agent receives a task and a budget.
+
+It selects providers, allocates spend, executes queries, and pays per request in real time — completing the task within budget, without human intervention.
 
 ```
-Agent calls GET /search?q=nvidia earnings
-       ↓
+Agent: "Analyze Nvidia as an investment. Budget: 0.10 USDC."
+
+  → web_search("Nvidia earnings 2026")     paid 0.01 USDC  ✓
+  → web_search("Nvidia competitor analysis") paid 0.01 USDC ✓
+  → get_stock_quote("NVDA")                paid 0.001 USDC ✓
+
+  Total spent: 0.021 USDC
+  Report: [generated]
+```
+
+---
+
+## How payments work
+
+```
+Agent calls GET /search?q=nvidia
+        ↓
 Server returns HTTP 402 + payment requirements
-       ↓
-Agent's MPP client signs payment on Stellar (< 5 seconds, ~$0.00001 fee)
-       ↓
-Server verifies + returns results with payment receipt
+        ↓
+Agent signs payment on Stellar (< 5 sec, ~$0.00001 fee)
+        ↓
+Server verifies + returns results
 ```
 
-No accounts. No API keys. The payment receipt **is** the credential.
+No accounts. No API keys. No human in the loop.
 
 ---
 
@@ -49,146 +87,66 @@ No accounts. No API keys. The payment receipt **is** the credential.
 ```
 src/
 ├── server/
-│   ├── index.ts          # Hono HTTP server (port 3000)
-│   ├── mpp.ts            # Stellar MPP charge intent setup
-│   ├── store.ts          # In-memory transaction log for dashboard
+│   ├── index.ts              # Hono HTTP server
+│   ├── mpp.ts                # Stellar MPP — Charge intent
+│   ├── store.ts              # Transaction log
 │   ├── routes/
-│   │   ├── search.ts     # /search — MPP gated
-│   │   ├── finance.ts    # /finance/quote — MPP gated
-│   │   └── search-x402.ts # /x402/search — x402 gated
+│   │   ├── search.ts         # /search          — MPP, 0.01 USDC
+│   │   ├── finance.ts        # /finance/quote   — MPP, 0.001 USDC
+│   │   └── search-x402.ts   # /x402/search     — x402, 0.01 USDC
 │   └── services/
-│       ├── search.ts     # Brave Search API (+ Jina AI fallback)
-│       └── finance.ts    # Yahoo Finance real-time quotes
+│       ├── search.ts         # Brave + Jina AI
+│       └── finance.ts        # Yahoo Finance
 └── agent/
-    └── index.ts          # Claude agent demo (pays autonomously)
+    └── index.ts              # Claude agent — pays autonomously
 ```
 
-**Stack:**
-- [Hono](https://hono.dev/) — HTTP server (native Web API Request/Response)
-- [`@stellar/mpp`](https://github.com/stellar/stellar-mpp-sdk) — Stellar MPP SDK
-- [`@anthropic-ai/sdk`](https://github.com/anthropic/anthropic-sdk-ts) — Claude claude-sonnet-4-6
-- `yahoo-finance2` — free real-time stock data
-- Brave Search API / Jina AI — web search
+**Stack:** Hono · Stellar MPP (`@stellar/mpp`) · x402 · Claude claude-sonnet-4-6 · TypeScript
 
 ---
 
 ## Setup
 
-### 1. Install
-
 ```bash
 npm install
-```
-
-### 2. Configure environment
-
-```bash
 cp .env.example .env
 ```
 
-Fill in `.env`:
+Generate two Stellar wallets at [lab.stellar.org](https://lab.stellar.org) — one for the server (receives), one for the agent (pays). Fund both with testnet XLM + USDC.
 
 ```env
 STELLAR_NETWORK=testnet
-
-# Server wallet (receives payments)
-MPP_SECRET_KEY=S...
-STELLAR_RECIPIENT=G...
-
-# Agent wallet (pays for services)
-AGENT_SECRET_KEY=S...
+MPP_SECRET_KEY=S...       # server wallet
+STELLAR_RECIPIENT=G...    # server wallet public key
+AGENT_SECRET_KEY=S...     # agent wallet
 ```
-
-**Generate wallets:** Go to [lab.stellar.org](https://lab.stellar.org) → Generate Keypair.
-Fund with testnet XLM + USDC at [friendbot.stellar.org](https://friendbot.stellar.org) and the [USDC testnet faucet](https://circle.com/usdc/developer).
-
-### 3. Run the server
 
 ```bash
-npm run server
+npm run server   # start the API server
+npm run agent    # run the demo agent
 ```
-
-```
-🚀 Metered API  →  http://localhost:3000
-📡 Network: Stellar testnet
-
-  MPP  /search?q=<query>               0.01 USDC
-  MPP  /finance/quote?symbol=NVDA       0.001 USDC
-  x402 /x402/search?q=<query>           0.01 USDC
-```
-
-### 4. Run the agent demo
-
-```bash
-npm run agent
-# or with a custom question:
-npm run agent "Is Apple a good investment right now?"
-```
-
-The agent will autonomously call tools, pay for each one via Stellar MPP, and print a spending summary:
-
-```
-🤖 Question: Is Nvidia a good investment right now?
-──────────────────────────────────────────────────────────────
-
-💳 Calling tool: web_search
-   Input: {"query":"Nvidia earnings 2026"}
-   💰 Paying 0.01 USDC via Stellar MPP...
-   ✅ Done
-
-💳 Calling tool: get_stock_quote
-   Input: {"symbol":"NVDA"}
-   💰 Paying 0.001 USDC via Stellar MPP...
-   ✅ Done
-
-📊 Answer:
-──────────────────────────────────────────────────────────────
-Based on current data, Nvidia is trading at $X with...
-
-──────────────────────────────────────────────────────────────
-💰 Spending summary:
-   web_search: 2 call(s) → 0.0200 USDC
-   get_stock_quote: 1 call(s) → 0.0010 USDC
-   Total: 0.0210 USDC
-──────────────────────────────────────────────────────────────
-```
-
----
-
-## Public endpoints (no payment needed)
-
-| Endpoint | Description |
-|---|---|
-| `GET /` | Service catalog + pricing |
-| `GET /transactions` | Live transaction feed (for dashboard) |
-| `GET /stats` | Aggregate usage stats |
 
 ---
 
 ## Roadmap
 
-- [x] Stellar MPP charge intent — search + finance
-- [x] x402 search route
-- [x] Claude agent with autonomous payment
-- [ ] Next.js dashboard with live transaction feed
-- [ ] Stellar MPP session intent (payment channels for high-frequency calls)
-- [ ] MCP server — expose tools to any MCP-compatible agent (Claude Code, Codex)
-- [ ] Service registry / discovery endpoint
-- [ ] Mainnet deployment
+- [x] Stellar MPP — search + finance, Charge intent
+- [x] x402 — search route
+- [x] Claude agent with autonomous payment loop
+- [ ] Dashboard — live transaction feed
+- [ ] MCP server — plug into Claude Code / Codex directly
+- [ ] Session intent — payment channels for high-frequency calls
+- [ ] Provider registry — discovery + quality scoring
+- [ ] Mainnet
 
 ---
 
-## Why Stellar
+## Vision
 
-- **$0.00001 per transaction** — micropayments are actually viable
-- **5-second settlement** — fast enough for synchronous HTTP requests
-- **Native USDC** — no bridging required
-- **99.99% uptime** — reliable for 24/7 autonomous agents
+AI agents are becoming economic actors.
+
+Metered is not a marketplace. It is the **economic layer for machine-to-machine services** — the infrastructure that lets agents operate with real autonomy, making real economic decisions, with real money.
 
 ---
 
-## Hackathon
-
-**Stellar Hacks: Agents** · [dorahacks.io/hackathon/stellar-agents-x402-stripe-mpp](https://dorahacks.io/hackathon/stellar-agents-x402-stripe-mpp)
-
-Prize pool: $10,000 USD · Deadline: April 13, 2026
+*Built for [Stellar Hacks: Agents](https://dorahacks.io/hackathon/stellar-agents-x402-stripe-mpp) · Deadline April 13, 2026*
