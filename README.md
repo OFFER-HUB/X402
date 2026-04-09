@@ -30,6 +30,7 @@ Metered is an execution layer for AI agents to discover, evaluate, and pay for s
 
 - **Pay-per-use** — no subscriptions, no commitments
 - **No API keys** — the payment receipt is the credential
+- **Budget-aware** — agents stop spending when the limit is reached
 - **Multiple providers per service** — agents compare price and quality, then decide
 - **Native machine-to-machine** — built on Stellar MPP and x402
 
@@ -37,11 +38,11 @@ Metered is an execution layer for AI agents to discover, evaluate, and pay for s
 
 ## Services (MVP)
 
-| Service | Providers | Price |
-|---|---|---|
-| Web Search | Brave, Jina AI | 0.01 USDC / query |
-| Financial Data | Yahoo Finance | 0.001 USDC / quote |
-| AI Inference | *(coming)* | per token |
+| Service | Providers | Price | Protocol |
+|---|---|---|---|
+| Web Search | Brave, Jina AI | 0.01 USDC / query | MPP + x402 |
+| Financial Data | Yahoo Finance | 0.001 USDC / quote | MPP |
+| AI Inference | *(coming)* | per token | MPP |
 
 Each service exposes multiple providers. The agent selects based on price, quality, and task requirements — autonomously.
 
@@ -56,12 +57,19 @@ It selects providers, allocates spend, executes queries, and pays per request in
 ```
 Agent: "Analyze Nvidia as an investment. Budget: 0.10 USDC."
 
-  → web_search("Nvidia earnings 2026")     paid 0.01 USDC  ✓
-  → web_search("Nvidia competitor analysis") paid 0.01 USDC ✓
-  → get_stock_quote("NVDA")                paid 0.001 USDC ✓
+💳 web_search  |  cost: 0.01 USDC  |  remaining: 0.10 USDC
+   {"query":"Nvidia earnings 2026"}
+   ✅ paid 0.01 USDC via Stellar MPP
 
-  Total spent: 0.021 USDC
-  Report: [generated]
+💳 get_stock_quote  |  cost: 0.001 USDC  |  remaining: 0.09 USDC
+   {"symbol":"NVDA"}
+   ✅ paid 0.001 USDC via Stellar MPP
+
+💰 Spending summary  (budget: 0.10 USDC)
+   web_search: 2 call(s)  →  0.0200 USDC
+   get_stock_quote: 1 call(s)  →  0.0010 USDC
+   Total spent: 0.0210 USDC  /  0.10 USDC
+   Remaining:   0.0790 USDC
 ```
 
 ---
@@ -75,7 +83,7 @@ Server returns HTTP 402 + payment requirements
         ↓
 Agent signs payment on Stellar (< 5 sec, ~$0.00001 fee)
         ↓
-Server verifies + returns results
+Server verifies + returns results with receipt header
 ```
 
 No accounts. No API keys. No human in the loop.
@@ -89,19 +97,23 @@ src/
 ├── server/
 │   ├── index.ts              # Hono HTTP server
 │   ├── mpp.ts                # Stellar MPP — Charge intent
-│   ├── store.ts              # Transaction log
+│   ├── store.ts              # Transaction log (feeds dashboard)
 │   ├── routes/
 │   │   ├── search.ts         # /search          — MPP, 0.01 USDC
 │   │   ├── finance.ts        # /finance/quote   — MPP, 0.001 USDC
 │   │   └── search-x402.ts   # /x402/search     — x402, 0.01 USDC
 │   └── services/
-│       ├── search.ts         # Brave + Jina AI
-│       └── finance.ts        # Yahoo Finance
-└── agent/
-    └── index.ts              # Claude agent — pays autonomously
+│       ├── search.ts         # Brave Search + Jina AI fallback
+│       └── finance.ts        # Yahoo Finance real-time
+├── agent/
+│   └── index.ts              # Claude agent — budget-aware, pays autonomously
+├── mcp/
+│   └── index.ts              # MCP server — plug into Claude Code / Codex
+└── scripts/
+    └── setup-wallets.ts      # One-command testnet wallet setup
 ```
 
-**Stack:** Hono · Stellar MPP (`@stellar/mpp`) · x402 · Claude claude-sonnet-4-6 · TypeScript
+**Stack:** Hono · Stellar MPP (`@stellar/mpp`) · x402 · Claude claude-sonnet-4-6 · MCP SDK · TypeScript
 
 ---
 
@@ -109,21 +121,34 @@ src/
 
 ```bash
 npm install
-cp .env.example .env
+npm run setup     # generates wallets, funds via Friendbot, writes .env
+npm run server    # start the API server
+npm run agent     # run the demo agent (default budget: 0.10 USDC)
 ```
 
-Generate two Stellar wallets at [lab.stellar.org](https://lab.stellar.org) — one for the server (receives), one for the agent (pays). Fund both with testnet XLM + USDC.
+Custom question + budget:
+```bash
+npm run agent "Is Apple a good buy right now?" 0.05
+```
+
+### Connect to Claude Code via MCP
+
+```bash
+claude mcp add metered -- npx tsx src/mcp/index.ts
+```
+
+Then just ask Claude Code: *"Search for Nvidia news and get the stock price"* — it pays automatically.
+
+### Manual wallet setup (alternative to `npm run setup`)
+
+Generate keypairs at [lab.stellar.org](https://lab.stellar.org), fund with testnet XLM + USDC, then fill `.env`:
 
 ```env
 STELLAR_NETWORK=testnet
-MPP_SECRET_KEY=S...       # server wallet
+MPP_SECRET_KEY=S...       # server wallet (receives)
 STELLAR_RECIPIENT=G...    # server wallet public key
-AGENT_SECRET_KEY=S...     # agent wallet
-```
-
-```bash
-npm run server   # start the API server
-npm run agent    # run the demo agent
+AGENT_SECRET_KEY=S...     # agent wallet (pays)
+BRAVE_API_KEY=            # optional — uses Jina AI if not set
 ```
 
 ---
@@ -132,11 +157,13 @@ npm run agent    # run the demo agent
 
 - [x] Stellar MPP — search + finance, Charge intent
 - [x] x402 — search route
-- [x] Claude agent with autonomous payment loop
+- [x] Claude agent with autonomous payment + budget enforcement
+- [x] MCP server — `claude mcp add metered`
+- [x] One-command wallet setup — `npm run setup`
 - [ ] Dashboard — live transaction feed
-- [ ] MCP server — plug into Claude Code / Codex directly
 - [ ] Session intent — payment channels for high-frequency calls
-- [ ] Provider registry — discovery + quality scoring
+- [ ] Provider quality scoring — agent picks best provider automatically
+- [ ] AI Inference route
 - [ ] Mainnet
 
 ---

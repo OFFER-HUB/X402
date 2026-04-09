@@ -22,19 +22,22 @@ The core insight: the payment rails exist (Stellar MPP, x402) but the economic l
 
 ## Current state
 
-### What's built
+### What's built ✅
 - Hono HTTP server with MPP-gated routes (`/search`, `/finance/quote`)
 - x402 route (`/x402/search`) — same service, different payment protocol
-- Web search service: Brave Search API (with key) or Jina AI (free fallback)
-- Finance service: yahoo-finance2 for real-time stock quotes
-- In-memory transaction store for dashboard consumption
-- Claude agent demo that pays autonomously via Stellar MPP
+- Web search: Brave Search API (with key) or Jina AI (free fallback, no key needed)
+- Finance: yahoo-finance2 for real-time stock quotes
+- In-memory transaction store (`store.ts`) for dashboard consumption
+- Claude agent with autonomous payment loop + budget enforcement (stops gracefully when limit hit)
+- MCP server (`src/mcp/index.ts`) — `claude mcp add metered` works
+- Auto-fund script (`scripts/setup-wallets.ts`) — one command, no manual steps
 
 ### What's NOT built yet (next priorities)
-1. **Next.js dashboard** — live transaction feed, spending stats, service catalog UI
+1. **Dashboard** — live transaction feed UI, the visual centrepiece for the demo video
 2. **MPP Session intent** — payment channels for high-frequency calls (currently only Charge intent)
-3. **MCP server** — expose /search and /finance as MCP tools so Claude Code / Codex can use them directly
-4. **Testnet to mainnet** — currently testnet only
+3. **Provider quality scoring** — track latency/success rate, agent picks best provider
+4. **AI Inference route** — third service type, per-token pricing
+5. **Mainnet deployment**
 
 ---
 
@@ -74,15 +77,17 @@ If `BRAVE_API_KEY` is set → use Brave Search API. Otherwise → use Jina AI (`
 ## File map
 
 ```
-src/server/index.ts          # Entry point — mounts all routes
-src/server/mpp.ts            # Mppx instance with stellar.charge() configured
-src/server/store.ts          # In-memory tx log: logTransaction(), getStats()
+src/server/index.ts              # Entry point — mounts all routes
+src/server/mpp.ts                # Mppx instance with stellar.charge() configured
+src/server/store.ts              # In-memory tx log: logTransaction(), getStats()
 src/server/routes/search.ts      # GET /search — MPP gated, 0.01 USDC
 src/server/routes/finance.ts     # GET /finance/quote — MPP gated, 0.001 USDC
 src/server/routes/search-x402.ts # GET /x402/search — x402 gated, 0.01 USDC
 src/server/services/search.ts    # Brave / Jina AI search client
 src/server/services/finance.ts   # Yahoo Finance quote client
-src/agent/index.ts           # Claude agent — patches fetch() via Mppx client
+src/agent/index.ts               # Claude agent — budget-aware, patches fetch() via Mppx
+src/mcp/index.ts                 # MCP server — stdio transport, web_search + get_stock_quote tools
+scripts/setup-wallets.ts         # Testnet wallet provisioning — keypairs + Friendbot + USDC trustline
 ```
 
 ---
@@ -141,26 +146,26 @@ const res = await fetch('http://localhost:3000/search?q=nvidia')
 
 ## What to build next (in priority order)
 
-### 1. MCP server (high impact for hackathon demo)
-Create `src/mcp/index.ts` that exposes `/search` and `/finance/quote` as MCP tools. Reference: [github.com/jamesbachini/x402-mcp-stellar](https://github.com/jamesbachini/x402-mcp-stellar).
+### 1. Dashboard — live transaction feed (HIGHEST PRIORITY)
+`src/server/routes/dashboard.ts` — an HTML page served by the Hono server (no separate framework needed for hackathon).
 
-The MCP server should:
-- Define tools with proper input schemas
-- Call our own server endpoints (with MPP payment handled by the client)
-- Work with Claude Code via `claude mcp add`
+Polls `GET /transactions` and `GET /stats` every 2 seconds. Shows:
+- Live feed: service called, amount paid, Stellar tx hash, timestamp
+- Total USDC processed counter
+- Per-service breakdown (search vs finance)
+- Agent wallet balance
 
-### 2. Next.js dashboard (high impact for demo video)
-`dashboard/` — Next.js app that polls `/transactions` and `/stats` every 2 seconds. Show:
-- Live feed of paid transactions (service, amount, timestamp)
-- Total USDC processed
-- Per-service breakdown
-- A "try it" button that triggers the agent demo
+Keep it simple: vanilla JS + CSS in a single HTML template. No React, no build step. The data is already in `store.ts`.
 
-### 3. MPP Session intent
-Add `src/server/routes/search-session.ts` using `@stellar/mpp/channel/server`. Better for agents making many calls — deposit once, sign commitments off-chain.
+### 2. MPP Session intent
+Add `src/server/routes/search-session.ts` using `@stellar/mpp/channel/server`.
+Better for agents making many calls — deposit once, sign commitments off-chain (0 on-chain txs per call).
 
-### 4. Finance route for x402
-Mirror the MPP finance route under `/x402/finance/quote`.
+### 3. Provider quality scoring
+Track latency + success rate per provider in `store.ts`. Agent selects lowest price among providers scoring above threshold. Directly demonstrates the "multiple providers, autonomous selection" differentiator.
+
+### 4. AI Inference route
+`src/server/routes/inference.ts` — per-token pricing via MPP Charge. Wire to Groq (free tier, fast) or Together AI.
 
 ---
 
