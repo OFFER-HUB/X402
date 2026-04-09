@@ -1,36 +1,37 @@
-// x402 version of the search route — same service, different payment protocol
-// Clients using x402 (Coinbase standard) pay here; MPP clients use /search
 import { Hono } from 'hono'
-import { paymentMiddleware } from '@x402/express'
+import { USDC_TESTNET_ADDRESS, USDC_PUBNET_ADDRESS, STELLAR_TESTNET_CAIP2, STELLAR_PUBNET_CAIP2 } from '@x402/stellar'
 import { searchWeb } from '../services/search.js'
 import { logTransaction } from '../store.js'
 
+// Coinbase's managed facilitator for x402 on Stellar
+const FACILITATOR_URL = process.env.X402_FACILITATOR_URL ?? 'https://www.x402.org/facilitator'
+
 const app = new Hono()
 
-// x402 middleware: returns HTTP 402 with x402-compatible payment header
 app.use('/', async (c, next) => {
-  const facilitatorUrl =
-    process.env.X402_FACILITATOR_URL ?? 'https://facilitator.stellar.org'
+  const isMainnet = process.env.STELLAR_NETWORK === 'mainnet'
+  const network = isMainnet ? STELLAR_PUBNET_CAIP2 : STELLAR_TESTNET_CAIP2
+  const usdcAddress = isMainnet ? USDC_PUBNET_ADDRESS : USDC_TESTNET_ADDRESS
 
   const paymentRequired = {
     scheme: 'exact',
-    network: `stellar:${process.env.STELLAR_NETWORK ?? 'testnet'}`,
+    network,
     maxAmountRequired: '10000', // 0.01 USDC (6 decimals)
     resource: c.req.url,
-    description: 'Web search — 0.01 USDC per query (x402)',
+    description: 'Web search — 0.01 USDC per query',
     mimeType: 'application/json',
     payTo: process.env.STELLAR_RECIPIENT!,
     maxTimeoutSeconds: 300,
-    asset: process.env.STELLAR_NETWORK === 'mainnet'
-      ? 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
-      : 'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+    asset: usdcAddress,
     extra: {},
   }
 
   const xPayment = c.req.header('X-PAYMENT')
+
+  // No payment header — return 402 challenge
   if (!xPayment) {
     return c.json(
-      { error: 'Payment required', x402Version: 1, accepts: [paymentRequired] },
+      { x402Version: 1, error: 'Payment required', accepts: [paymentRequired] },
       402,
       { 'X-ACCEPTS-PAYMENT': JSON.stringify([paymentRequired]) }
     )
@@ -38,16 +39,17 @@ app.use('/', async (c, next) => {
 
   // Verify payment via facilitator
   try {
-    const verifyRes = await fetch(`${facilitatorUrl}/verify`, {
+    const verifyRes = await fetch(`${FACILITATOR_URL}/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payment: xPayment, paymentRequirements: paymentRequired }),
     })
     if (!verifyRes.ok) {
-      return c.json({ error: 'Payment verification failed' }, 402)
+      const body = await verifyRes.text()
+      return c.json({ error: 'Payment verification failed', detail: body }, 402)
     }
-  } catch {
-    return c.json({ error: 'Could not reach facilitator' }, 503)
+  } catch (err: any) {
+    return c.json({ error: 'Facilitator unreachable', detail: err.message }, 503)
   }
 
   await next()
@@ -55,7 +57,7 @@ app.use('/', async (c, next) => {
 
 app.get('/', async (c) => {
   const q = c.req.query('q')
-  if (!q) return c.json({ error: 'Missing query param ?q=' }, 400)
+  if (!q) return c.json({ error: 'Missing ?q= param' }, 400)
 
   try {
     const data = await searchWeb(q)
