@@ -8,6 +8,7 @@ import searchX402Route from './routes/search-x402.js'
 import searchSessionRoute from './routes/search-session.js'
 import financeRoute from './routes/finance.js'
 import inferenceRoute from './routes/inference.js'
+import dashboardRoute from './routes/dashboard.js'
 import { getTransactions, getStats } from './store.js'
 import { getAllSessions } from './session.js'
 
@@ -27,6 +28,9 @@ app.route('/session/search', searchSessionRoute)
 
 // ── x402-gated routes ─────────────────────────────────────────────────────────
 app.route('/x402/search', searchX402Route)
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+app.route('/dashboard', dashboardRoute)
 
 // ── Public info ───────────────────────────────────────────────────────────────
 app.get('/', (c) =>
