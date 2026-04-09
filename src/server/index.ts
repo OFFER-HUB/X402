@@ -6,6 +6,7 @@ import { serve } from '@hono/node-server'
 import searchMppRoute from './routes/search.js'
 import searchX402Route from './routes/search-x402.js'
 import financeRoute from './routes/finance.js'
+import inferenceRoute from './routes/inference.js'
 import dashboardRoute from './routes/dashboard.js'
 import { getTransactions, getStats } from './store.js'
 import { network } from './mpp.js'
@@ -18,6 +19,7 @@ app.use('*', logger())
 // ── MPP-gated routes ──────────────────────────────────────────────────────────
 app.route('/search', searchMppRoute)
 app.route('/finance', financeRoute)
+app.route('/inference', inferenceRoute)
 
 // ── x402-gated routes (same services, different protocol) ─────────────────────
 app.route('/x402/search', searchX402Route)
@@ -51,6 +53,12 @@ app.get('/', (c) =>
         price: '0.01 USDC',
         description: 'Web search via x402 (Coinbase standard)',
       },
+      {
+        path: '/inference',
+        protocol: 'Stellar MPP',
+        price: '0.005 USDC',
+        description: 'AI inference — POST { prompt, model? }',
+      },
     ],
   })
 )
@@ -65,6 +73,7 @@ serve({ fetch: app.fetch, port }, () => {
   console.log(``)
   console.log(`  MPP  /search?q=<query>               0.01 USDC`)
   console.log(`  MPP  /finance/quote?symbol=NVDA       0.001 USDC`)
+  console.log(`  MPP  /inference                       0.005 USDC`)
   console.log(`  x402 /x402/search?q=<query>           0.01 USDC`)
   console.log(``)
   console.log(`  GET  /transactions  →  live tx feed`)

@@ -29,7 +29,7 @@ async function searchBrave(query: string): Promise<SearchResponse> {
 
   if (!res.ok) throw new Error(`Brave Search error: ${res.status}`)
 
-  const data = await res.json() as any
+  const data = (await res.json()) as any
   return {
     query,
     source: 'brave',
@@ -51,7 +51,7 @@ async function searchJina(query: string): Promise<SearchResponse> {
 
   if (!res.ok) throw new Error(`Jina search error: ${res.status}`)
 
-  const data = await res.json() as any
+  const data = (await res.json()) as any
   const results: SearchResult[] = (data.data ?? []).slice(0, 10).map((r: any) => ({
     title: r.title ?? '',
     url: r.url ?? '',
