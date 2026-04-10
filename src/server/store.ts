@@ -1,22 +1,29 @@
-// In-memory transaction log for the dashboard
+import { EventEmitter } from 'events'
+
+// ── Event emitter for real-time dashboard updates ─────────────────────────────
+export const txEvents = new EventEmitter()
+
+// ── Transaction interface ─────────────────────────────────────────────────────
 export interface Transaction {
   id: string
   service: string
   amount: string
   query: string
+  txHash?: string   // Stellar tx hash for explorer link
   timestamp: string
 }
 
 const transactions: Transaction[] = []
 
 export function logTransaction(tx: Omit<Transaction, 'id' | 'timestamp'>) {
-  transactions.unshift({
+  const full: Transaction = {
     id: Math.random().toString(36).slice(2),
     timestamp: new Date().toISOString(),
     ...tx,
-  })
-  // Keep last 100
+  }
+  transactions.unshift(full)
   if (transactions.length > 100) transactions.pop()
+  txEvents.emit('new', full)
 }
 
 export function getTransactions() {
@@ -31,5 +38,9 @@ export function getStats() {
     totals[tx.service].usdc += parseFloat(tx.amount)
   }
   const totalUsdc = transactions.reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
-  return { totalUsdc: totalUsdc.toFixed(4), totalCalls: transactions.length, services: totals }
+  return {
+    totalUsdc: totalUsdc.toFixed(4),
+    totalCalls: transactions.length,
+    services: totals,
+  }
 }

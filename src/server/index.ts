@@ -8,10 +8,11 @@ import searchX402Route from './routes/search-x402.js'
 import searchSessionRoute from './routes/search-session.js'
 import financeRoute from './routes/finance.js'
 import inferenceRoute from './routes/inference.js'
+import dashboardRoute from './routes/dashboard.js'
 import { getTransactions, getStats } from './store.js'
 import { getAllSessions } from './session.js'
+import { network } from './mpp.js'
 
-const network = process.env.STELLAR_NETWORK || 'testnet'
 const app = new Hono()
 
 app.use('*', cors())
@@ -28,6 +29,9 @@ app.route('/session/search', searchSessionRoute)
 // ── x402-gated routes ─────────────────────────────────────────────────────────
 app.route('/x402/search', searchX402Route)
 
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+app.route('/dashboard', dashboardRoute)
+
 // ── Public info ───────────────────────────────────────────────────────────────
 app.get('/', (c) =>
   c.json({
@@ -40,7 +44,7 @@ app.get('/', (c) =>
         path: '/search?q=<query>',
         protocol: 'Stellar MPP Charge',
         price: '0.01 USDC per request',
-        description: 'Web search — 1 on-chain tx per call',
+        description: 'Web search - 1 on-chain tx per call',
       },
       {
         path: '/finance/quote?symbol=<ticker>',
@@ -52,13 +56,13 @@ app.get('/', (c) =>
         path: '/inference',
         protocol: 'Stellar MPP Charge',
         price: '0.005 USDC per request',
-        description: 'AI inference — POST { prompt, model? }',
+        description: 'AI inference - POST { prompt, model? }',
       },
       {
         path: '/session/search',
         protocol: 'Stellar MPP Session',
         price: '0.01 USDC per request (off-chain)',
-        description: 'Web search via payment channel — 1 deposit, N queries, 1 settlement',
+        description: 'Web search via payment channel - 1 deposit, N queries, 1 settlement',
         endpoints: {
           open:  'POST /session/search/open',
           query: 'POST /session/search',
@@ -82,7 +86,7 @@ app.get('/sessions', (c) => c.json(getAllSessions()))
 
 const port = Number(process.env.PORT) || 3000
 serve({ fetch: app.fetch, port }, () => {
-  console.log(`\n🚀 Metered API  →  http://localhost:${port}`)
+  console.log(`\n🚀 Metered API  ->  http://localhost:${port}`)
   console.log(`📡 Network: Stellar ${network}`)
   console.log(``)
   console.log(`  MPP Charge  /search?q=<query>               0.01 USDC`)
@@ -91,7 +95,8 @@ serve({ fetch: app.fetch, port }, () => {
   console.log(`  MPP Session /session/search                  0.01 USDC (off-chain)`)
   console.log(`  x402        /x402/search?q=<query>           0.01 USDC`)
   console.log(``)
-  console.log(`  GET  /transactions  →  live tx feed`)
-  console.log(`  GET  /stats         →  usage stats`)
-  console.log(`  GET  /sessions      →  session lifecycle events\n`)
+  console.log(`  GET  /transactions  ->  live tx feed`)
+  console.log(`  GET  /stats         ->  usage stats`)
+  console.log(`  GET  /sessions      ->  session lifecycle events`)
+  console.log(`  GET  /dashboard     ->  live dashboard UI\n`)
 })
