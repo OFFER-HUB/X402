@@ -9,8 +9,25 @@ Mppx.create({
 
 // const anthropic = new Anthropic()
 const BASE_URL = process.env.SERVER_URL || 'http://localhost:3000'
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!
-const GEMINI_MODEL = 'gemini-2.0-flash'
+
+// AI provider — priority: Gemini → OpenRouter → error
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
+
+if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
+  console.error('❌  No AI key found. Set GEMINI_API_KEY or OPENROUTER_API_KEY in .env')
+  process.exit(1)
+}
+
+const AI_URL = GEMINI_API_KEY
+  ? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+  : 'https://openrouter.ai/api/v1/chat/completions'
+
+const AI_KEY = (GEMINI_API_KEY ?? OPENROUTER_API_KEY)!
+
+const AI_MODEL = GEMINI_API_KEY
+  ? 'gemini-2.0-flash'
+  : 'google/gemini-2.0-flash-001'
 
 const BUDGET_USDC = parseFloat(process.argv[3] ?? process.env.AGENT_BUDGET ?? '0.10')
 let totalSpent = 0
@@ -53,13 +70,15 @@ async function callTool(name: string, input: Record<string, string>): Promise<un
   throw new Error(`Unknown tool: ${name}`)
 }
 
-async function geminiChat(messages: any[]): Promise<any> {
-  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+async function aiChat(messages: any[]): Promise<any> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${AI_KEY}` }
+  if (OPENROUTER_API_KEY && !GEMINI_API_KEY) headers['HTTP-Referer'] = 'https://github.com/OFFER-HUB/X402'
+  const res = await fetch(AI_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GEMINI_API_KEY}` },
-    body: JSON.stringify({ model: GEMINI_MODEL, max_tokens: 4096, tools, tool_choice: 'auto', messages }),
+    headers,
+    body: JSON.stringify({ model: AI_MODEL, max_tokens: 4096, tools, tool_choice: 'auto', messages }),
   })
-  if (!res.ok) throw new Error(`Gemini error: ${res.status} ${await res.text()}`)
+  if (!res.ok) throw new Error(`AI error: ${res.status} ${await res.text()}`)
   return res.json()
 }
 
@@ -71,7 +90,7 @@ async function runAgent(question: string) {
   const messages: any[] = [{ role: 'user', content: question }]
 
   while (true) {
-    const response = await geminiChat(messages)
+    const response = await aiChat(messages)
     const choice = response.choices[0]
     const msg = choice.message
     messages.push(msg)
