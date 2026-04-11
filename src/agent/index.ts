@@ -61,9 +61,12 @@ async function callTool(name: string, input: Record<string, string>): Promise<un
   throw new Error(`Unknown tool: ${name}`)
 }
 
+// Once we fall back to OpenRouter, stay there for the entire session
+let useOpenRouter = !GEMINI_API_KEY
+
 async function aiChat(messages: any[]): Promise<any> {
-  // Try Gemini first if key is available
-  if (GEMINI_API_KEY) {
+  // Try Gemini first if key is available and we haven't switched yet
+  if (GEMINI_API_KEY && !useOpenRouter) {
     const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GEMINI_API_KEY}` },
@@ -74,8 +77,9 @@ async function aiChat(messages: any[]): Promise<any> {
     if (res.status !== 429 && res.status !== 401) {
       throw new Error(`AI error: ${res.status} ${await res.text()}`)
     }
-    if (!OPENROUTER_API_KEY) throw new Error(`Gemini quota exhausted (429). Set OPENROUTER_API_KEY in .env as fallback.`)
-    console.log(`   ⚠️  Gemini quota exhausted — switching to OpenRouter`)
+    if (!OPENROUTER_API_KEY) throw new Error(`Gemini quota exhausted (${res.status}). Set OPENROUTER_API_KEY in .env as fallback.`)
+    console.log(`   ⚠️  Gemini quota exhausted — switching to OpenRouter for this session`)
+    useOpenRouter = true
   }
 
   // OpenRouter fallback
@@ -93,6 +97,14 @@ async function aiChat(messages: any[]): Promise<any> {
 }
 
 async function runAgent(question: string) {
+  // Quick health-check so we fail fast with a clear message
+  try {
+    await fetch(`${BASE_URL}/`)
+  } catch {
+    console.error(`❌  Cannot reach server at ${BASE_URL}. Run "npm run server" first.`)
+    process.exit(1)
+  }
+
   console.log(`\n🤖 Question: ${question}`)
   console.log(`💼 Budget: ${BUDGET_USDC} USDC`)
   console.log(`${'─'.repeat(60)}`)
@@ -103,7 +115,8 @@ async function runAgent(question: string) {
     const response = await aiChat(messages)
     const choice = response.choices[0]
     const msg = choice.message
-    messages.push(msg)
+    // Some providers reject null content — normalize to empty string
+    messages.push({ ...msg, content: msg.content ?? '' })
 
     if (choice.finish_reason === 'stop' || !msg.tool_calls?.length) {
       console.log(`\n📊 Answer:\n${'─'.repeat(60)}\n${msg.content ?? '(no text)'}`)
@@ -126,7 +139,7 @@ async function runAgent(question: string) {
         console.log(err.message.startsWith('Budget') ? `   🛑 ${err.message}` : `   ❌ ${err.message}`)
         content = err.message
       }
-      messages.push({ role: 'tool', tool_call_id: toolCall.id, content })
+      messages.push({ role: 'tool', tool_call_id: toolCall.id ?? toolCall.index?.toString() ?? '0', content })
     }
   }
 }
