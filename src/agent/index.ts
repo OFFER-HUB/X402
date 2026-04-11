@@ -19,15 +19,6 @@ if (!GEMINI_API_KEY && !OPENROUTER_API_KEY) {
   process.exit(1)
 }
 
-const AI_URL = GEMINI_API_KEY
-  ? 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
-  : 'https://openrouter.ai/api/v1/chat/completions'
-
-const AI_KEY = (GEMINI_API_KEY ?? OPENROUTER_API_KEY)!
-
-const AI_MODEL = GEMINI_API_KEY
-  ? 'gemini-2.0-flash'
-  : 'google/gemini-2.0-flash-001'
 
 const BUDGET_USDC = parseFloat(process.argv[3] ?? process.env.AGENT_BUDGET ?? '0.10')
 let totalSpent = 0
@@ -71,14 +62,33 @@ async function callTool(name: string, input: Record<string, string>): Promise<un
 }
 
 async function aiChat(messages: any[]): Promise<any> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', Authorization: `Bearer ${AI_KEY}` }
-  if (OPENROUTER_API_KEY && !GEMINI_API_KEY) headers['HTTP-Referer'] = 'https://github.com/OFFER-HUB/X402'
-  const res = await fetch(AI_URL, {
+  // Try Gemini first if key is available
+  if (GEMINI_API_KEY) {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GEMINI_API_KEY}` },
+      body: JSON.stringify({ model: 'gemini-2.0-flash', max_tokens: 4096, tools, tool_choice: 'auto', messages }),
+    })
+    // Fall through to OpenRouter on quota exhaustion (429) or auth errors (401)
+    if (res.ok) return res.json()
+    if (res.status !== 429 && res.status !== 401) {
+      throw new Error(`AI error: ${res.status} ${await res.text()}`)
+    }
+    if (!OPENROUTER_API_KEY) throw new Error(`Gemini quota exhausted (429). Set OPENROUTER_API_KEY in .env as fallback.`)
+    console.log(`   ⚠️  Gemini quota exhausted — switching to OpenRouter`)
+  }
+
+  // OpenRouter fallback
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers,
-    body: JSON.stringify({ model: AI_MODEL, max_tokens: 4096, tools, tool_choice: 'auto', messages }),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      'HTTP-Referer': 'https://github.com/OFFER-HUB/X402',
+    },
+    body: JSON.stringify({ model: 'google/gemini-2.0-flash-001', max_tokens: 4096, tools, tool_choice: 'auto', messages }),
   })
-  if (!res.ok) throw new Error(`AI error: ${res.status} ${await res.text()}`)
+  if (!res.ok) throw new Error(`OpenRouter error: ${res.status} ${await res.text()}`)
   return res.json()
 }
 
