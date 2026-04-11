@@ -9,11 +9,11 @@ interface Props {
 
 const QUICK_SYMBOLS = ['NVDA', 'AAPL', 'TSLA', 'MSFT', 'BTC-USD']
 
-function fmt(n: number, dec = 2) {
-  if (!isFinite(n)) return '—'
-  if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`
-  if (n >= 1e9)  return `${(n / 1e9).toFixed(2)}B`
-  if (n >= 1e6)  return `${(n / 1e6).toFixed(2)}M`
+function fmt(n: number | null | undefined, dec = 2) {
+  if (n == null || !isFinite(n)) return '—'
+  if (Math.abs(n) >= 1e12) return `${(n / 1e12).toFixed(2)}T`
+  if (Math.abs(n) >= 1e9)  return `${(n / 1e9).toFixed(2)}B`
+  if (Math.abs(n) >= 1e6)  return `${(n / 1e6).toFixed(2)}M`
   return n.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
 
@@ -25,10 +25,11 @@ export function FinancePanel({ baseUrl, wallet }: Props) {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    await getQuote(symbol.trim().toUpperCase())
+    const r = await getQuote(symbol.trim().toUpperCase())
+    if (r) wallet.refresh()
   }
 
-  const changeClass = data
+  const changeClass = data && data.change != null
     ? data.change >= 0 ? 'quote-change-pos' : 'quote-change-neg'
     : ''
 
@@ -43,7 +44,7 @@ export function FinancePanel({ baseUrl, wallet }: Props) {
         </div>
         <div className="panel-body">
 
-          {!hasUsdc && (
+          {!hasUsdc && wallet.status !== 'ready' && (
             <div style={{
               background: 'rgba(74,222,128,0.06)',
               border: '1px solid rgba(74,222,128,0.2)',
@@ -54,10 +55,7 @@ export function FinancePanel({ baseUrl, wallet }: Props) {
               color: 'var(--muted-light)',
               lineHeight: 1.6,
             }}>
-              <strong style={{ color: 'var(--green)' }}>Payment required</strong> — costs 0.001 USDC via Stellar MPP.
-              {' '}Run{' '}
-              <code style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontSize: 11 }}>npm run agent</code>
-              {' '}to auto-pay and see results.
+              Provisioning your demo wallet… first quote will auto-pay 0.001 USDC via Stellar MPP.
             </div>
           )}
 
@@ -86,7 +84,7 @@ export function FinancePanel({ baseUrl, wallet }: Props) {
                 key={s}
                 className="btn btn-outline"
                 style={{ padding: '4px 10px', fontSize: 11 }}
-                onClick={() => { setSymbol(s); getQuote(s) }}
+                onClick={async () => { setSymbol(s); const r = await getQuote(s); if (r) wallet.refresh() }}
                 disabled={status === 'loading'}
               >
                 {s}
@@ -96,13 +94,7 @@ export function FinancePanel({ baseUrl, wallet }: Props) {
 
           {status === 'loading' && <div className="status-loading">Fetching quote…</div>}
 
-          {status === 'error' && error?.includes('402') && (
-            <div className="status-402">
-              402 — server requires Stellar MPP payment. Run{' '}
-              <code style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>npm run agent</code> to auto-pay.
-            </div>
-          )}
-          {status === 'error' && error && !error.includes('402') && (
+          {status === 'error' && error && (
             <div className="status-error">{error}</div>
           )}
 
@@ -110,9 +102,9 @@ export function FinancePanel({ baseUrl, wallet }: Props) {
             <div>
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px' }}>
-                  {data.name}
+                  {data.name ?? data.symbol}
                   <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>
-                    {data.symbol} · {data.currency}
+                    {data.symbol}{data.currency ? ` · ${data.currency}` : ''}
                   </span>
                 </div>
               </div>
@@ -124,10 +116,17 @@ export function FinancePanel({ baseUrl, wallet }: Props) {
                 <div className="quote-item">
                   <div className="quote-item-label">Change</div>
                   <div className={`quote-item-value ${changeClass}`}>
-                    {data.change >= 0 ? '+' : ''}{fmt(data.change)}{' '}
-                    <span style={{ fontSize: 12 }}>
-                      ({data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%)
-                    </span>
+                    {data.change != null && (
+                      <>
+                        {data.change >= 0 ? '+' : ''}{fmt(data.change)}{' '}
+                      </>
+                    )}
+                    {data.changePercent != null && (
+                      <span style={{ fontSize: 12 }}>
+                        ({data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%)
+                      </span>
+                    )}
+                    {data.change == null && data.changePercent == null && '—'}
                   </div>
                 </div>
                 <div className="quote-item">

@@ -18,7 +18,8 @@ export function SearchPanel({ baseUrl, wallet }: Props) {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    await search(query)
+    const result = await search(query)
+    if (result) wallet.refresh()
   }
 
   return (
@@ -32,8 +33,8 @@ export function SearchPanel({ baseUrl, wallet }: Props) {
         </div>
         <div className="panel-body">
 
-          {/* Wallet status banner */}
-          {!hasUsdc && (
+          {/* Wallet status banner — only when wallet really has 0 USDC */}
+          {!hasUsdc && wallet.status !== 'ready' && (
             <div style={{
               background: 'rgba(124,106,247,0.08)',
               border: '1px solid rgba(124,106,247,0.25)',
@@ -44,18 +45,7 @@ export function SearchPanel({ baseUrl, wallet }: Props) {
               color: 'var(--muted-light)',
               lineHeight: 1.6,
             }}>
-              <strong style={{ color: 'var(--accent)' }}>Payment required</strong> — costs 0.01 USDC via Stellar MPP.
-              {wallet.publicKey && (
-                <> Your wallet{' '}
-                  <code style={{ fontFamily: 'var(--mono)', fontSize: 10 }}>
-                    {wallet.publicKey.slice(0, 6)}…{wallet.publicKey.slice(-4)}
-                  </code>
-                  {' '}has no USDC.
-                </>
-              )}
-              {' '}Run{' '}
-              <code style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontSize: 11 }}>npm run agent</code>
-              {' '}to see live paid queries in the dashboard.
+              Provisioning your demo wallet… first query will auto-pay 0.01 USDC via Stellar MPP.
             </div>
           )}
 
@@ -84,7 +74,7 @@ export function SearchPanel({ baseUrl, wallet }: Props) {
                 key={q}
                 className="btn btn-outline"
                 style={{ fontSize: 11, padding: '4px 10px' }}
-                onClick={() => { setQuery(q); search(q) }}
+                onClick={async () => { setQuery(q); const r = await search(q); if (r) wallet.refresh() }}
                 disabled={status === 'loading'}
               >
                 {q}
@@ -94,13 +84,7 @@ export function SearchPanel({ baseUrl, wallet }: Props) {
 
           {status === 'loading' && <div className="status-loading">Searching…</div>}
 
-          {status === 'error' && error?.includes('402') && (
-            <div className="status-402">
-              402 — server requires Stellar MPP payment. Run{' '}
-              <code style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>npm run agent</code> to auto-pay.
-            </div>
-          )}
-          {status === 'error' && error && !error.includes('402') && (
+          {status === 'error' && error && (
             <div className="status-error">{error}</div>
           )}
 

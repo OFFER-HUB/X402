@@ -21,7 +21,8 @@ export function InferencePanel({ baseUrl, wallet }: Props) {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    await infer(prompt)
+    const r = await infer(prompt)
+    if (r) wallet.refresh()
   }
 
   return (
@@ -35,7 +36,7 @@ export function InferencePanel({ baseUrl, wallet }: Props) {
         </div>
         <div className="panel-body">
 
-          {!hasUsdc && (
+          {!hasUsdc && wallet.status !== 'ready' && (
             <div style={{
               background: 'rgba(251,191,36,0.07)',
               border: '1px solid rgba(251,191,36,0.22)',
@@ -46,10 +47,7 @@ export function InferencePanel({ baseUrl, wallet }: Props) {
               color: 'var(--muted-light)',
               lineHeight: 1.6,
             }}>
-              <strong style={{ color: '#fbbf24' }}>Payment required</strong> — costs 0.005 USDC via Stellar MPP.
-              {' '}Run{' '}
-              <code style={{ fontFamily: 'var(--mono)', color: 'var(--accent)', fontSize: 11 }}>npm run agent</code>
-              {' '}to auto-pay.
+              Provisioning your demo wallet… first prompt will auto-pay 0.005 USDC via Stellar MPP.
             </div>
           )}
 
@@ -87,13 +85,7 @@ export function InferencePanel({ baseUrl, wallet }: Props) {
             </div>
           </div>
 
-          {status === 'error' && error?.includes('402') && (
-            <div className="status-402" style={{ marginTop: 10 }}>
-              402 — server requires Stellar MPP payment. Run{' '}
-              <code style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>npm run agent</code> to auto-pay.
-            </div>
-          )}
-          {status === 'error' && error && !error.includes('402') && (
+          {status === 'error' && error && (
             <div className="status-error" style={{ marginTop: 10 }}>{error}</div>
           )}
 

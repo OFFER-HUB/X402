@@ -5,9 +5,12 @@ const STORAGE_KEY   = 'metered:demo:secret'
 const HORIZON       = 'https://horizon-testnet.stellar.org'
 const FRIENDBOT     = 'https://friendbot.stellar.org'
 const USDC_ISSUER   = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5'
+// Friendbot gives 10,000 XLM — keep 500 for fees, swap the rest to USDC
+const XLM_TO_SWAP    = '9500'
+const USDC_MIN_RECEIVE = '1' // accept any amount ≥ 1 USDC
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-export type WalletStatus = 'idle' | 'generating' | 'funding' | 'ready' | 'error'
+export type WalletStatus = 'idle' | 'generating' | 'funding' | 'trustline' | 'swapping' | 'ready' | 'error'
 
 export interface WalletState {
   publicKey:   string | null
@@ -71,6 +74,76 @@ async function fundViaFriendbot(pk: string): Promise<boolean> {
   }
 }
 
+/**
+ * Add a USDC trustline so the account is allowed to hold USDC.
+ * Throws on failure — caller surfaces the error to the UI.
+ */
+async function addUsdcTrustline(secret: string): Promise<void> {
+  const sdk = await import('@stellar/stellar-sdk')
+  const { Keypair, Horizon, TransactionBuilder, Networks, Operation, Asset } = sdk
+  const horizon = new Horizon.Server(HORIZON)
+  const kp = Keypair.fromSecret(secret)
+  const account = await horizon.loadAccount(kp.publicKey())
+  const tx = new TransactionBuilder(account, {
+    fee: '100',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(Operation.changeTrust({ asset: new Asset('USDC', USDC_ISSUER) }))
+    .setTimeout(30)
+    .build()
+  tx.sign(kp)
+  await horizon.submitTransaction(tx)
+}
+
+/**
+ * Patch the global fetch() so any call to a Metered route automatically
+ * pays the 402 challenge using this wallet's keypair. Idempotent — safe to
+ * call multiple times; only the first call has any effect.
+ */
+let mppxInitialized = false
+async function initMppxClient(secret: string): Promise<void> {
+  if (mppxInitialized) return
+  const [{ Keypair }, { Mppx, stellar }] = await Promise.all([
+    import('@stellar/stellar-sdk'),
+    import('@stellar/mpp/charge/client'),
+  ])
+  Mppx.create({
+    methods: [stellar.charge({ keypair: Keypair.fromSecret(secret) })],
+  })
+  mppxInitialized = true
+}
+
+/**
+ * Swap XLM → USDC on the Stellar testnet DEX via pathPaymentStrictSend.
+ * Sends XLM_TO_SWAP XLM and receives at least USDC_MIN_RECEIVE USDC.
+ * Throws on failure — caller surfaces the error to the UI.
+ */
+async function swapXlmToUsdc(secret: string): Promise<void> {
+  const sdk = await import('@stellar/stellar-sdk')
+  const { Keypair, Horizon, TransactionBuilder, Networks, Operation, Asset, BASE_FEE } = sdk
+  const horizon = new Horizon.Server(HORIZON)
+  const kp = Keypair.fromSecret(secret)
+  const account = await horizon.loadAccount(kp.publicKey())
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        sendAsset:   Asset.native(),
+        sendAmount:  XLM_TO_SWAP,
+        destination: kp.publicKey(),
+        destAsset:   new Asset('USDC', USDC_ISSUER),
+        destMin:     USDC_MIN_RECEIVE,
+        path:        [],
+      }),
+    )
+    .setTimeout(30)
+    .build()
+  tx.sign(kp)
+  await horizon.submitTransaction(tx)
+}
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [publicKey,   setPublicKey]   = useState<string | null>(null)
@@ -82,9 +155,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!publicKey) return
-    const { xlm, usdc } = await fetchBalances(publicKey)
-    setXlmBalance(xlm)
-    setUsdcBalance(usdc)
+    // Immediate fetch — picks up the change if Horizon is fast
+    const first = await fetchBalances(publicKey)
+    setXlmBalance(first.xlm)
+    setUsdcBalance(first.usdc)
+    // Horizon usually needs 1–2s to index a fresh Soroban tx, so re-fetch.
+    await new Promise((r) => setTimeout(r, 1800))
+    const second = await fetchBalances(publicKey)
+    setXlmBalance(second.xlm)
+    setUsdcBalance(second.usdc)
   }, [publicKey])
 
   const reset = useCallback(() => {
@@ -103,6 +182,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         // 1 — Load or generate keypair
         let secret = localStorage.getItem(STORAGE_KEY)
         let pk: string
+        let isNewWallet = false
 
         if (secret) {
           pk = await publicKeyFromSecret(secret)
@@ -112,6 +192,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           secret = kp.secretKey
           pk     = kp.publicKey
           localStorage.setItem(STORAGE_KEY, secret)
+          isNewWallet = true
 
           // 2 — Fund new wallet via Friendbot (XLM)
           setStatus('funding')
@@ -123,14 +204,45 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setPublicKey(pk)
         setSecretKey(secret)
 
-        // 3 — Fetch balances
-        const { xlm, usdc } = await fetchBalances(pk)
+        // 3 — Check current balances; if USDC is missing or 0, run trustline + swap.
+        // This also self-heals wallets stored in localStorage from before USDC support.
+        let { xlm, usdc } = await fetchBalances(pk)
+
+        if (usdc === null) {
+          setStatus('trustline')
+          await addUsdcTrustline(secret)
+          await new Promise((r) => setTimeout(r, 1500))
+          ;({ xlm, usdc } = await fetchBalances(pk))
+        }
+
+        if (usdc !== null && parseFloat(usdc) === 0 && xlm !== null && parseFloat(xlm) > parseFloat(XLM_TO_SWAP) + 100) {
+          setStatus('swapping')
+          await swapXlmToUsdc(secret)
+          await new Promise((r) => setTimeout(r, 1500))
+          ;({ xlm, usdc } = await fetchBalances(pk))
+        }
+
+        // 4 — Verify the swap actually deposited USDC for new wallets
+        if (isNewWallet && (usdc === null || parseFloat(usdc) === 0)) {
+          throw new Error('XLM → USDC swap completed but wallet still holds 0 USDC')
+        }
+
+        // 5 — Boot the Mppx client: patches global fetch() so any /search,
+        //     /finance/quote, /inference, /session call from the dashboard
+        //     automatically pays the 402 challenge using THIS wallet.
+        if (usdc !== null && parseFloat(usdc) > 0) {
+          await initMppxClient(secret)
+        }
+
         setXlmBalance(xlm)
         setUsdcBalance(usdc)
         setStatus('ready')
       } catch (err: any) {
+        console.error('[wallet] setup failed', err)
         setStatus('error')
-        setError(err.message ?? 'Wallet setup failed')
+        setError(err?.response?.data?.extras?.result_codes
+          ? JSON.stringify(err.response.data.extras.result_codes)
+          : err?.message ?? 'Wallet setup failed')
       }
     })()
   }, [])

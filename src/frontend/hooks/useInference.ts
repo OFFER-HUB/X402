@@ -33,7 +33,7 @@ export function useInference(baseUrl: string): UseInferenceResult {
       })
       if (res.status === 402) {
         setStatus('error')
-        setError('Payment required (402) — ensure Mppx is configured')
+        setError('Payment required — wallet not initialized yet, please wait')
         return null
       }
       if (!res.ok) {

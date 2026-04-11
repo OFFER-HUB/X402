@@ -23,10 +23,13 @@ export function useSearch(baseUrl: string): UseSearchResult {
     setStatus('loading')
     setError(null)
     try {
+      // Mppx (initialized in WalletProvider) patches fetch() to auto-handle 402:
+      // it intercepts the challenge, signs a USDC payment with the wallet keypair,
+      // and transparently retries. We only ever see the final 200 response here.
       const res = await fetch(`${baseUrl}/search?q=${encodeURIComponent(query)}`)
       if (res.status === 402) {
         setStatus('error')
-        setError('Payment required (402) — ensure Mppx is configured')
+        setError('Payment required — wallet not initialized yet, please wait')
         return null
       }
       if (!res.ok) {
